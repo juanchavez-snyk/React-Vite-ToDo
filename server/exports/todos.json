@@ -1,4 +1,0 @@
-[
-  { "id": 1, "title": "Scan this repo with Snyk", "notes": "Start with `snyk test`.", "done": false },
-  { "id": 2, "title": "Fix the critical dependency", "notes": "", "done": false }
-]
