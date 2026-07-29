@@ -1,0 +1,2 @@
+# Intentionally minimal so the Dockerfile's `COPY . .` pulls in more than it should.
+# A real .dockerignore would exclude .git, .env and node_modules.

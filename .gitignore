@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+*.log
+.env.local
+
+# NOTE: .env is intentionally committed for the secrets-detection part of the demo.
