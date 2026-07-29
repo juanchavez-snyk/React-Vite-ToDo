@@ -67,6 +67,60 @@ about prioritizing by reachability rather than by CVSS alone.
 Three **Type Confusion** criticals, all fixed in 4.7.9. A patch-level bump
 clears all three. Good setup for the fix-PR conversation.
 
+## License compliance
+
+Snyk Open Source is two products in one: known vulnerabilities *and* license
+obligations. The second half is the one most demos skip, and it's often the one
+that gets legal into the room.
+
+```bash
+snyk test
+```
+
+Two license issues on this branch, both from packages a developer would add
+without a second thought:
+
+| Severity | Package | License | Why it's flagged |
+|---|---|---|---|
+| **High** | `pngquant-bin@9.0.0` | GPL-3.0 | Strong copyleft — distributing linked code can oblige you to release your own source under GPL |
+| **Medium** | `ical.js@1.5.0` | MPL-2.0 | Weak copyleft — source-disclosure obligations for modified files |
+
+### How to tell the story
+
+Open [src/calendar.js](../src/calendar.js). It's a genuinely useful feature —
+export your todos as an `.ics` file — and `ical.js` is the obvious library for
+it. Nothing about that decision looks like a risk.
+
+> "Nobody involved did anything wrong. A developer needed calendar export,
+> picked the standard library, and shipped it. But if your product is
+> proprietary, someone in legal needs to know MPL-2.0 is now in your dependency
+> tree — and they'll find out at diligence, not at code review."
+
+Then contrast with `pngquant-bin`: added for image compression, GPL-3.0, and
+scored **high**. Same casual decision, materially worse obligation.
+
+### The severity comes from policy, not from Snyk
+
+Worth saying out loud, because it pre-empts the obvious objection. These
+severities are **your org's license policy**, not a Snyk opinion. The policy
+scoring these findings has AGPL-1.0/3.0, GPL-2.0/3.0, CPOL-1.02 and SimPL-2.0 at
+**high**, and Artistic, CDDL, EPL, LGPL and MPL at **medium**.
+
+That's configurable per organization. A company that ships GPL software itself
+would score these differently, and that's the correct behaviour — license risk
+is a legal posture, not a technical fact.
+
+### Two things to know before you demo this
+
+- **License issues need a license policy configured** in the Snyk org (Settings
+  → License policies). An org with no policy reports zero license issues no
+  matter what's in the manifest. If your demo tenant shows nothing here, that's
+  the reason — not a scanning failure.
+- **`snyk test` scans production dependencies by default.** A copyleft package in
+  `devDependencies` won't appear unless you pass `--dev`. That's a fair
+  discussion point in its own right: build-time-only copyleft usually carries
+  much weaker obligations than shipped code, so the default is arguably right.
+
 ## Fix path
 
 ```bash
