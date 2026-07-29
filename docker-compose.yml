@@ -1,0 +1,26 @@
+# DEMO: intentionally insecure compose file for `snyk iac test`.
+version: '3'
+
+services:
+  web:
+    build: .
+    ports:
+      - '3001:3001'
+    # DEMO VULN (Snyk IaC): privileged container with the host Docker socket mounted.
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host
+    environment:
+      # DEMO VULN (Snyk IaC): plaintext credentials in the compose file.
+      DATABASE_URL: postgres://todo_admin:S3cretP4ssw0rd@db:5432/todos
+      JWT_SECRET: demo-super-secret-do-not-ship-2024
+
+  db:
+    image: postgres:9.6
+    # DEMO VULN (Snyk IaC): trust auth lets anyone connect without a password.
+    environment:
+      POSTGRES_PASSWORD: S3cretP4ssw0rd
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - '5432:5432'
