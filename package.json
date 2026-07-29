@@ -1,0 +1,13 @@
+{
+  "name": "snyk-oss-test",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal project with a known-vulnerable dependency, for Snyk Open Source testing",
+  "main": "test.js",
+  "scripts": {
+    "start": "node test.js"
+  },
+  "dependencies": {
+    "lodash": "4.17.15"
+  }
+}
