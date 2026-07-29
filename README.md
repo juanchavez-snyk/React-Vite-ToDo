@@ -1,13 +1,40 @@
 # Snyk Demo — Todo App
 
-A small React + Vite todo app with an Express API, **deliberately vulnerable** so
-it exercises all four Snyk products: Open Source, Code, IaC, and Container.
+A small React + Vite todo app with an Express API, used to demo all four Snyk
+products: Open Source, Code, IaC, and Container.
 
-> ⚠️ **Every vulnerability here is intentional.** Each one is marked with a
-> `DEMO VULN` comment naming the product that finds it. All credentials are fake.
-> Do not deploy this, and do not copy patterns out of it.
+The repo ships **the same app twice, on two branches** — once written securely,
+once with realistic vulnerabilities. That pairing is the point: it lets you demo
+Snyk catching vulnerabilities *in a pull request*, against a clean baseline,
+instead of scanning an already-broken repo.
+
+## The two branches
+
+| Branch | State | Verified |
+|---|---|---|
+| **`v-one`** | Secure baseline | 0 Open Source, 0 Code, 0 IaC, 0 base-image vulns |
+| **`v-two`** | Same app, vulnerabilities introduced | 143 Open Source, 16 Code, 38 IaC, 546 container |
+
+Both branches are the same application with the same features. Only the
+*implementation* differs, so the diff between them is almost entirely security.
+
+## Demo flow
+
+1. Merge **`v-one`** into `main`. `main` is now a clean, passing baseline.
+2. Open a PR from **`v-two`** into `main`.
+3. Snyk's PR checks run against the diff and report the vulnerabilities as
+   **newly introduced** — because relative to `main`, they are.
+
+That third step is what makes this worth setting up. Scanning a repo that was
+already vulnerable shows a backlog. Scanning this PR shows a developer
+introducing risk and getting caught before merge, which is the workflow you're
+actually selling.
+
+See [docs/06-pr-demo.md](docs/06-pr-demo.md) for the walkthrough.
 
 ## Quick start
+
+Works on either branch:
 
 ```bash
 npm run install:all
@@ -17,85 +44,57 @@ npm run install:all
 npm run dev
 ```
 
-Web on http://localhost:5173, API on http://localhost:3001. The API stores todos
-in memory, so a restart resets to the seed data.
+Web on http://localhost:5173, API on http://localhost:3001. Todos are stored in
+memory, so restarting the API resets to seed data — handy between demo runs.
 
-The app genuinely works: add, complete, filter and delete todos, with optional
-markdown notes.
+## What differs between the branches
 
-## Verified Snyk coverage
-
-| Product | Command | Result |
+| Area | `v-one` (secure) | `v-two` (vulnerable) |
 |---|---|---|
-| Open Source | `snyk test` (root) | 58 unique issues — 2 critical, 25 high |
-| Open Source | `snyk test` (in `server/`) | 85 unique issues — 5 critical, 34 high |
-| Code | `snyk code test` | 16 findings, 15 rule types |
-| IaC | `snyk iac test .` | 38 issues — 9 high, 16 medium, 13 low |
-| Container | `snyk container test node:14 --file=Dockerfile` | 546 unique vulns — 9 critical, 77 high |
-
-Container scanning needs **no local Docker** — Snyk pulls from the registry.
-
-## Two exploits that actually run
-
-Most demo apps only produce scanner output. These two execute in the browser:
-
-**Reflected DOM XSS** — with the app running, open:
-
-```
-http://localhost:5173/?note=%3Cimg%20src%3Dx%20onerror%3Dalert(document.domain)%3E
-```
-
-**Stored XSS** — add a todo, click *notes*, and paste `<img src=x onerror=alert('stored')>`.
-
-Both work because `marked@0.3.6` doesn't sanitize and the output goes through
-`dangerouslySetInnerHTML` — one bug with a root cause in both Snyk Open Source
-*and* Snyk Code.
+| Markdown rendering | `marked` 15 + DOMPurify allow-list | `marked` 0.3.6, raw `dangerouslySetInnerHTML` |
+| Todo search | Parameterized `$1` query | String-concatenated SQL |
+| Todo update | Explicit field allow-list | `_.merge(todo, req.body)` |
+| Export download | Keyed lookup + containment check | `path.join` on raw user input |
+| Backup | `fs.copyFile` + charset validation | `child_process.exec` string |
+| Link preview | Literal URL chosen by `switch` | `axios.get(req.query.url)` |
+| Redirect | Literal URL chosen by `switch` | `res.redirect(req.query.to)` |
+| Passwords | scrypt + salt + `timingSafeEqual` | unsalted MD5 |
+| Sessions | `jwt.verify`, pinned alg, 15m expiry | `jwt.decode`, no expiry |
+| Secrets | Env vars, no production fallback | Hardcoded in source |
+| API hardening | helmet, rate limits, CORS allow-list | none, `origin: '*'` |
+| Base image | `node:22-alpine`, non-root, healthcheck | `node:14`, root, secrets in layers |
+| Terraform | Private encrypted S3/RDS, least-priv IAM | Public bucket, public RDS, `Action: "*"` |
+| Kubernetes | Non-root, caps dropped, limits, probes | Privileged, SYS_ADMIN, host root mount |
 
 ## Layout
 
 ```
 src/                      React frontend
-  api.js                  hardcoded API token
+  markdown.js             single sanitized markdown renderer (v-one only)
+  api.js                  API client
   components/
-    SharedNote.jsx        DOM XSS (window.location -> dangerouslySetInnerHTML)
-    TodoItem.jsx          stored XSS via markdown notes
-server/                   Express API (its own package.json)
-  index.js                wildcard CORS, no helmet, no rate limiting
+    SharedNote.jsx        ?note= URL rendering
+    TodoItem.jsx          markdown notes rendering
+server/                   Express API (own package.json)
+  index.js                app setup, CORS, rate limiting
   routes/
-    todos.js              SQL injection, prototype pollution via _.merge
-    admin.js              command injection, path traversal, SSRF, open redirect
-    auth.js               hardcoded JWT secret, MD5 passwords, jwt.decode()
+    todos.js              CRUD + search
+    admin.js              export, backup, preview, redirect, import
+    auth.js               login, reset, session
 infra/
-  terraform/main.tf       public S3, public RDS, 0.0.0.0/0 SG, wildcard IAM
-  k8s/deployment.yaml     privileged, SYS_ADMIN, host root mount, no limits
-  cloudformation/stack.yaml  public bucket, open SG, admin IAM role
-Dockerfile                node:14 (EOL), runs as root, secrets in layers
-docker-compose.yml        privileged, docker.sock mounted (see caveat)
-.env                      committed fake secrets, for secret detection
+  terraform/main.tf       S3, RDS, security groups, IAM, KMS
+  k8s/deployment.yaml     Deployment, Service, NetworkPolicy
+  cloudformation/stack.yaml
+Dockerfile                multi-stage build
 docs/                     talk tracks + prompt library
 ```
 
 ## Docs
 
-Talk tracks per product, with real numbers, objection handling, and prompts for
-generating more findings: **[docs/](docs/)** — start with
+[docs/](docs/) has a runbook, a talk track per product with real numbers and
+objection handling, a prompt library, and the PR demo walkthrough. Start with
 [docs/00-demo-runbook.md](docs/00-demo-runbook.md).
 
-## Known gaps
-
-Documented so they don't surprise you mid-demo:
-
-- `docker-compose.yml` yields **0** IaC findings — Snyk IaC covers Terraform,
-  CloudFormation, ARM and Kubernetes, not Compose.
-- `snyk iac test` does **not** scan the Dockerfile; that's
-  `snyk container test --file=Dockerfile`.
-- The **stored** XSS is not reported by Snyk Code (an API response isn't treated
-  as a taint source in client code). The **reflected** one is. Show the stored
-  one as a live exploit, the reflected one as the SAST finding.
-
-## Why React/Vite plus an Express API
-
-React/Vite alone gives you `package.json` for SCA and JSX for SAST, but the
-highest-impact Snyk Code findings — SQL injection, command injection, path
-traversal, SSRF — are server-side. The small Express API exists so those are
-real, reachable code paths rather than contrived snippets.
+> ⚠️ On `v-two`, every vulnerability is intentional and marked with a
+> `DEMO VULN` comment naming the product that finds it. All credentials are fake.
+> Don't deploy it, and don't copy patterns out of it.

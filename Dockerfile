@@ -1,30 +1,47 @@
-# DEMO: this Dockerfile is intentionally insecure.
-# Snyk Container flags the base image CVEs; `snyk iac test Dockerfile` flags the
-# configuration issues (root user, no healthcheck, etc.).
+# Multi-stage build on a current, minimal base image.
 
-# DEMO VULN (Snyk Container): node:14 is end-of-life and carries hundreds of
-# known OS and runtime CVEs. Also unpinned by digest, so builds are not reproducible.
-FROM node:14
-
-# DEMO VULN (Snyk Container): installs extra tooling into the runtime image and
-# never cleans the apt lists, widening the attack surface and image size.
-RUN apt-get update && apt-get install -y curl wget netcat vim git
+# --- build stage -------------------------------------------------------------
+FROM node:22-alpine AS build
 
 WORKDIR /app
 
-# DEMO VULN (Snyk Container): copies the entire build context, including .env
-# files, .git history and local node_modules, into the image.
-COPY . .
+# Copy manifests first so dependency layers cache independently of source churn.
+COPY package.json package-lock.json ./
+RUN npm ci
 
-RUN npm install && npm run build
-RUN npm --prefix server install
+COPY index.html vite.config.js ./
+COPY src ./src
+RUN npm run build
 
-# DEMO VULN (Snyk Container): secret baked into an image layer as an env var.
-ENV DATABASE_URL="postgres://todo_admin:S3cretP4ssw0rd@db.internal:5432/todos"
-ENV NODE_ENV=development
+# --- api dependencies --------------------------------------------------------
+FROM node:22-alpine AS api-deps
+
+WORKDIR /app/server
+COPY server/package.json server/package-lock.json ./
+# Production dependencies only - no build tooling in the runtime image.
+RUN npm ci --omit=dev
+
+# --- runtime -----------------------------------------------------------------
+FROM node:22-alpine AS runtime
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# Only the built assets, server source and production dependencies are copied.
+# No .git, no .env, no local node_modules - see .dockerignore.
+COPY --from=api-deps /app/server/node_modules ./server/node_modules
+COPY --from=build /app/dist ./dist
+COPY server/index.js server/store.js ./server/
+COPY server/routes ./server/routes
+COPY server/exports ./server/exports
+
+# Drop to the unprivileged user that the base image already provides.
+USER node
 
 EXPOSE 3001
 
-# DEMO VULN (Snyk Container): no USER instruction, so the container runs as root.
-# DEMO VULN (Snyk Container): no HEALTHCHECK instruction.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 CMD ["node", "server/index.js"]

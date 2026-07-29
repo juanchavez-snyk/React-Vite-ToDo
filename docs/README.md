@@ -8,6 +8,7 @@
 | [03-iac.md](03-iac.md) | IaC talk track — Terraform, Kubernetes, CloudFormation |
 | [04-container.md](04-container.md) | Container talk track — base image remediation math |
 | [05-prompt-library.md](05-prompt-library.md) | Cross-product prompts for agent-driven demos |
+| [06-pr-demo.md](06-pr-demo.md) | The `v-one` → `main` → `v-two` PR check demo |
 
 Each product doc has the same shape: **the story** (the one-sentence framing),
 **what to show** (in order, with real data), **prompts to surface more**, and
@@ -17,6 +18,16 @@ Each product doc has the same shape: **the story** (the one-sentence framing),
 
 If you have 15 minutes with a customer, read [00-demo-runbook.md](00-demo-runbook.md)
 and nothing else. It has the order, the numbers, and the two live exploits.
+
+## Branches
+
+The repo carries the same app twice: **`v-one`** is the secure baseline (0
+findings across all four products) and **`v-two`** introduces the
+vulnerabilities. All the counts in these talk tracks describe **`v-two`**.
+
+The PR walkthrough in [06-pr-demo.md](06-pr-demo.md) is the strongest single
+demo here, because it shows Snyk blocking new risk rather than reporting an old
+backlog.
 
 ## Ground rules
 

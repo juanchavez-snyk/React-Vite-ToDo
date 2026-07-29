@@ -1,10 +1,8 @@
-import marked from 'marked'
+import { renderMarkdown } from '../markdown.js'
 
 // Feature: `/?note=...` lets someone share a draft note as a link.
-//
-// DEMO VULN (Snyk Code): DOM-based XSS. The value comes straight off
-// window.location and is rendered as raw HTML with no sanitization, so
-// ?note=<img src=x onerror=alert(1)> executes in the victim's browser.
+// The value comes from the URL, so it is untrusted input and is sanitized
+// before rendering - a ?note=<img src=x onerror=...> payload is stripped.
 export default function SharedNote() {
   const params = new URLSearchParams(window.location.search)
   const shared = params.get('note')
@@ -14,7 +12,7 @@ export default function SharedNote() {
   return (
     <aside className="shared">
       <h2>Shared note</h2>
-      <div dangerouslySetInnerHTML={{ __html: marked(shared) }} />
+      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(shared) }} />
     </aside>
   )
 }
