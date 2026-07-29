@@ -57,12 +57,19 @@ Roughly, relative to the clean `main`:
 
 | Product | Newly introduced |
 |---|---|
-| Open Source | 143 issues — 7 critical, 59 high |
+| Open Source (web) | 58 unique issues — 2 critical, 25 high |
+| Open Source (API) | 85 unique issues — 5 critical, 34 high |
 | Code | 16 findings across 15 rule types |
 | IaC | 38 issues — 9 high, 16 medium, 13 low |
 | Container | 546 base-image vulns — 9 critical, 77 high |
 
 Every one is attributed to this PR, because the baseline had none.
+
+The two Open Source rows share packages (`axios` and `lodash` are in both
+manifests), so the distinct-advisory count across the repo is 102 rather than
+143. Quote whichever framing you're asked for, but know which one you're using —
+the CLI's text output prints one row per dependency *path*, which is a third,
+larger number again.
 
 ## Running the demo
 

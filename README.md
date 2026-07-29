@@ -13,7 +13,13 @@ instead of scanning an already-broken repo.
 | Branch | State | Verified |
 |---|---|---|
 | **`v-one`** | Secure baseline | 0 Open Source, 0 Code, 0 IaC, 0 base-image vulns |
-| **`v-two`** | Same app, vulnerabilities introduced | 143 Open Source, 16 Code, 38 IaC, 546 container |
+| **`v-two`** | Same app, vulnerabilities introduced | 58 + 85 Open Source, 16 Code, 38 IaC, 546 container |
+
+Open Source counts are per manifest: **58** unique issues in `package.json` and
+**85** in `server/package.json` (102 distinct advisories across both, since
+`axios` and `lodash` appear in each). The CLI's text output prints one line per
+dependency *path*, so it shows a larger number again — worth knowing before
+someone challenges your figures.
 
 Both branches are the same application with the same features. Only the
 *implementation* differs, so the diff between them is almost entirely security.
