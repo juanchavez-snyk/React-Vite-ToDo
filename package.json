@@ -1,13 +1,31 @@
 {
-  "name": "snyk-oss-test",
-  "version": "1.0.0",
+  "name": "snyk-demo-todo-web",
   "private": true,
-  "description": "Minimal project with a known-vulnerable dependency, for Snyk Open Source testing",
-  "main": "test.js",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "React/Vite todo app used to demo Snyk Open Source, Code, IaC and Container",
   "scripts": {
-    "start": "node test.js"
+    "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"npm --prefix server run dev\"",
+    "dev:web": "vite",
+    "dev:api": "npm --prefix server run dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "install:all": "npm install && npm --prefix server install"
   },
   "dependencies": {
-    "lodash": "4.17.15"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "marked": "0.3.6",
+    "lodash": "4.17.15",
+    "axios": "0.21.1",
+    "js-yaml": "3.13.0",
+    "moment": "2.29.1",
+    "minimist": "1.2.0",
+    "serialize-javascript": "2.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.2.1",
+    "vite": "5.0.0",
+    "concurrently": "^8.2.2"
   }
 }
