@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "React/Vite todo app - secure baseline",
+  "description": "React/Vite todo app used to demo Snyk Open Source, Code, IaC and Container",
   "scripts": {
     "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"npm --prefix server run dev\"",
     "dev:web": "vite",
@@ -15,12 +15,17 @@
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "marked": "^15.0.7",
-    "dompurify": "^3.2.4"
+    "marked": "0.3.6",
+    "lodash": "4.17.15",
+    "axios": "0.21.1",
+    "js-yaml": "3.13.0",
+    "moment": "2.29.1",
+    "minimist": "1.2.0",
+    "serialize-javascript": "2.1.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.11",
-    "concurrently": "^9.1.2"
+    "@vitejs/plugin-react": "4.2.1",
+    "vite": "5.0.0",
+    "concurrently": "^8.2.2"
   }
 }

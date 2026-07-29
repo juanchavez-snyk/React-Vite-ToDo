@@ -1,109 +1,38 @@
+# DEMO: intentionally insecure CloudFormation, so the demo covers a third IaC
+# parser alongside Terraform and Kubernetes. Do not deploy.
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Snyk demo todo app - secure baseline
-
-Parameters:
-  VpcCidr:
-    Type: String
-    Default: 10.0.0.0/16
-    Description: CIDR permitted to reach the API
+Description: Snyk demo todo app - insecure by design
 
 Resources:
-  TodoKey:
-    Type: AWS::KMS::Key
-    Properties:
-      Description: CMK for todo app data at rest
-      EnableKeyRotation: true
-      KeyPolicy:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
-            Action: 'kms:*'
-            Resource: '*'
-
-  AccessLogsBucket:
-    Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: aws:kms
-              KMSMasterKeyID: !Ref TodoKey
-      VersioningConfiguration:
-        Status: Enabled
-      # A destination bucket logs to itself, which keeps access logging enabled
-      # everywhere without creating a second log bucket to manage.
-      LoggingConfiguration:
-        LogFilePrefix: self/
-
-  # Private, encrypted, versioned, with access logging enabled.
+  # DEMO VULN (Snyk IaC): public, unencrypted bucket with no versioning.
   AttachmentsBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
     Properties:
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      OwnershipControls:
-        Rules:
-          - ObjectOwnership: BucketOwnerEnforced
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: aws:kms
-              KMSMasterKeyID: !Ref TodoKey
-      VersioningConfiguration:
-        Status: Enabled
-      LoggingConfiguration:
-        DestinationBucketName: !Ref AccessLogsBucket
-        LogFilePrefix: attachments/
+      BucketName: snyk-demo-todo-attachments-cfn
+      AccessControl: PublicReadWrite
 
+  # DEMO VULN (Snyk IaC): SQS queue without server-side encryption.
   TodoQueue:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: snyk-demo-todo-events
-      KmsMasterKeyId: !Ref TodoKey
-      KmsDataKeyReusePeriodSeconds: 300
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt TodoDeadLetterQueue.Arn
-        maxReceiveCount: 5
 
-  TodoDeadLetterQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: snyk-demo-todo-events-dlq
-      KmsMasterKeyId: !Ref TodoKey
-
-  # Only the application port, only from inside the VPC. No SSH ingress.
+  # DEMO VULN (Snyk IaC): security group open to the world on SSH and Postgres.
   ApiSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Todo API access
       SecurityGroupIngress:
-        - Description: API traffic from within the VPC
-          IpProtocol: tcp
-          FromPort: 3001
-          ToPort: 3001
-          CidrIp: !Ref VpcCidr
-      SecurityGroupEgress:
-        - Description: HTTPS to AWS service endpoints
-          IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: !Ref VpcCidr
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
 
-  # Scoped to the actions and resources the app actually needs.
+  # DEMO VULN (Snyk IaC): IAM role granting full administrative access.
   ApiRole:
     Type: AWS::IAM::Role
     Properties:
@@ -115,24 +44,10 @@ Resources:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: attachments-access
+        - PolicyName: admin
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                  - s3:DeleteObject
-                Resource: !Sub '${AttachmentsBucket.Arn}/attachments/*'
-              - Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                Resource: !GetAtt TodoQueue.Arn
-              - Effect: Allow
-                Action:
-                  - kms:Decrypt
-                  - kms:GenerateDataKey
-                Resource: !GetAtt TodoKey.Arn
+                Action: '*'
+                Resource: '*'

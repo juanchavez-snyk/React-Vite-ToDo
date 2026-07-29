@@ -1,15 +1,2 @@
-.git
-.gitignore
-node_modules
-server/node_modules
-dist
-docs
-infra
-.env
-.env.*
-*.log
-.DS_Store
-.claude
-docker-compose.yml
-Dockerfile
-README.md
+# DEMO: intentionally minimal, so the Dockerfile's `COPY . .` pulls in more than
+# it should. A real .dockerignore would exclude .git, .env and node_modules.

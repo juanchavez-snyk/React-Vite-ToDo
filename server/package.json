@@ -3,18 +3,21 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "description": "Express API for the todo app - secure baseline",
+  "description": "Express API for the Snyk demo todo app",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "cors": "^2.8.5",
-    "helmet": "^8.0.0",
-    "express-rate-limit": "^7.5.0",
-    "jsonwebtoken": "^9.0.2",
-    "pg": "^8.13.1"
+    "express": "4.17.1",
+    "cors": "2.8.5",
+    "jsonwebtoken": "8.5.1",
+    "pg": "8.7.1",
+    "js-yaml": "3.13.0",
+    "lodash": "4.17.15",
+    "axios": "0.21.1",
+    "handlebars": "4.7.6",
+    "tar": "4.4.13"
   }
 }

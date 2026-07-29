@@ -1,3 +1,4 @@
+# DEMO: intentionally insecure Kubernetes manifests for `snyk iac test infra/k8s`.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,7 +7,7 @@ metadata:
   labels:
     app: todo-api
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: todo-api
@@ -15,123 +16,58 @@ spec:
       labels:
         app: todo-api
     spec:
-      # No host namespaces are shared with the pod.
-      hostNetwork: false
-      hostPID: false
-      hostIPC: false
-      automountServiceAccountToken: false
-      serviceAccountName: todo-api
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        fsGroup: 10001
-        seccompProfile:
-          type: RuntimeDefault
+      # DEMO VULN (Snyk IaC): shares the host network, PID and IPC namespaces.
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+      # DEMO VULN (Snyk IaC): default service account token is auto-mounted.
+      automountServiceAccountToken: true
       containers:
         - name: api
-          # Pinned by digest so the running image cannot change under us.
-          image: snyk-demo/todo-api:1.0.0@sha256:6f9c1b2a4e5d8a3f7b0c9d2e1f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f00
+          # DEMO VULN (Snyk IaC/Container): mutable `latest` tag, no digest pin.
+          image: snyk-demo/todo-api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3001
-              name: http
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
+              hostPort: 3001
+          # DEMO VULN (Snyk IaC): no CPU/memory requests or limits set.
           securityContext:
-            privileged: false
-            runAsNonRoot: true
-            runAsUser: 10001
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # DEMO VULN (Snyk IaC): privileged, root, writable FS, all caps.
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
             capabilities:
-              drop:
-                - ALL
+              add:
+                - SYS_ADMIN
+                - NET_ADMIN
           env:
-            # Secrets are referenced, never inlined in the manifest.
-            - name: NODE_ENV
-              value: production
+            # DEMO VULN (Snyk IaC): secrets as plaintext env values in the manifest.
             - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: todo-api-secrets
-                  key: database-url
+              value: postgres://todo_admin:S3cretP4ssw0rd@db:5432/todos
             - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: todo-api-secrets
-                  key: jwt-secret
+              value: demo-super-secret-do-not-ship-2024
           volumeMounts:
-            # Writable scratch space, so the root filesystem can stay read-only.
-            - name: tmp
-              mountPath: /tmp
-          livenessProbe:
-            httpGet:
-              path: /api/health
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /api/health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            # DEMO VULN (Snyk IaC): mounts the host filesystem root into the pod.
+            - name: host-root
+              mountPath: /host
+          # DEMO VULN (Snyk IaC): no liveness or readiness probe.
       volumes:
-        - name: tmp
-          emptyDir: {}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: todo-api
-  namespace: default
-automountServiceAccountToken: false
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: todo-api
-  namespace: default
 spec:
-  # Internal only. External traffic arrives through an ingress that terminates TLS.
-  type: ClusterIP
+  # DEMO VULN (Snyk IaC): exposes the API directly to the internet.
+  type: LoadBalancer
   selector:
     app: todo-api
   ports:
     - port: 80
-      targetPort: http
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: todo-api
-  namespace: default
-spec:
-  podSelector:
-    matchLabels:
-      app: todo-api
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: ingress-gateway
-      ports:
-        - protocol: TCP
-          port: 3001
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              app: todo-db
-      ports:
-        - protocol: TCP
-          port: 5432
+      targetPort: 3001
