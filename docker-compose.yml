@@ -1,0 +1,38 @@
+services:
+  web:
+    build: .
+    # Bound to loopback so the API is not published on every host interface.
+    ports:
+      - '127.0.0.1:3001:3001'
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Secrets come from an untracked .env file, never from this manifest.
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17.2-alpine
+    # Password is supplied via .env; no trust auth, so a password is required.
+    environment:
+      POSTGRES_DB: todos
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Not published to the host at all - only reachable on the compose network.
+    expose:
+      - '5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d todos']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:

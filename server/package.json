@@ -1,0 +1,20 @@
+{
+  "name": "snyk-demo-todo-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Express API for the todo app - secure baseline",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "helmet": "^8.0.0",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  }
+}

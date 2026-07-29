@@ -61,3 +61,5 @@ out/
 .yarn/unplugged
 .yarn/install-state.gz
 .pnp.*
+# Backup artifacts produced by the demo backup endpoint
+server/exports/backup-*
