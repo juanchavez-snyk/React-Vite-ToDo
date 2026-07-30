@@ -1,42 +1,28 @@
-const BASE_URL = '/api'
+import axios from 'axios'
 
-// Session token is held in memory only - never hardcoded, never persisted.
-let authToken = null
+// DEMO VULN (Snyk Code): hardcoded credential committed to source control.
+const API_TOKEN = 'sk_live_51H7qZ2eZvKYlo2CxAnalyticsDemoKey0000'
 
-export function setAuthToken(token) {
-  authToken = token
+const client = axios.create({
+  baseURL: '/api',
+  headers: { 'X-Api-Token': API_TOKEN },
+})
+
+export async function fetchTodos() {
+  const { data } = await client.get('/todos')
+  return data
 }
 
-async function request(path, options = {}) {
-  const headers = { ...(options.headers || {}) }
-  if (options.body) headers['Content-Type'] = 'application/json'
-  if (authToken) headers.Authorization = `Bearer ${authToken}`
-
-  const response = await fetch(`${BASE_URL}${path}`, { ...options, headers })
-
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`)
-  }
-
-  if (response.status === 204) return null
-  return response.json()
+export async function createTodo(todo) {
+  const { data } = await client.post('/todos', todo)
+  return data
 }
 
-export function fetchTodos() {
-  return request('/todos')
+export async function updateTodo(id, patch) {
+  const { data } = await client.patch(`/todos/${id}`, patch)
+  return data
 }
 
-export function createTodo(todo) {
-  return request('/todos', { method: 'POST', body: JSON.stringify(todo) })
-}
-
-export function updateTodo(id, patch) {
-  return request(`/todos/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  })
-}
-
-export function deleteTodo(id) {
-  return request(`/todos/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export async function deleteTodo(id) {
+  await client.delete(`/todos/${id}`)
 }

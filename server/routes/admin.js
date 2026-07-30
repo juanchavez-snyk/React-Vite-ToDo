@@ -2,134 +2,60 @@
 
 const express = require('express')
 const fs = require('fs')
-const fsp = require('fs/promises')
 const path = require('path')
-const rateLimit = require('express-rate-limit')
+const { exec } = require('child_process')
+const axios = require('axios')
+const yaml = require('js-yaml')
 
 const router = express.Router()
 const EXPORT_DIR = path.join(__dirname, '..', 'exports')
 
-// Expensive endpoints (disk and network work) get a tighter budget than the
-// global limiter allows.
-const heavyLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
+// DEMO VULN (Snyk Code): path traversal — the user-supplied filename is joined
+// onto the export directory with no normalization or containment check.
+router.get('/export', (req, res) => {
+  const name = req.query.file || 'todos.json'
+  const target = path.join(EXPORT_DIR, name)
+
+  fs.readFile(target, 'utf8', (err, data) => {
+    if (err) return res.status(404).json({ error: 'no such export' })
+    res.type('text/plain').send(data)
+  })
 })
 
-// Exports are addressed by a short id rather than a path, so there is no way to
-// express a traversal in the first place.
-const EXPORTS = {
-  todos: 'todos.json',
-}
+// DEMO VULN (Snyk Code): command injection — the label goes straight into a shell.
+router.post('/backup', (req, res) => {
+  const label = (req.body && req.body.label) || 'manual'
+  const cmd = `mkdir -p ${EXPORT_DIR} && cp ${EXPORT_DIR}/todos.json ${EXPORT_DIR}/backup-${label}.json`
 
-router.get('/export', heavyLimiter, async (req, res) => {
-  const key = typeof req.query.file === 'string' ? req.query.file : 'todos'
-  const fileName = EXPORTS[key]
-
-  if (!fileName) return res.status(400).json({ error: 'unknown export' })
-
-  // Resolve, then verify the result is still inside EXPORT_DIR before reading.
-  const target = path.resolve(EXPORT_DIR, fileName)
-  if (path.relative(EXPORT_DIR, target).startsWith('..')) {
-    return res.status(400).json({ error: 'invalid export path' })
-  }
-
-  try {
-    const data = await fsp.readFile(target, 'utf8')
-    res.type('application/json').send(data)
-  } catch {
-    res.status(404).json({ error: 'no such export' })
-  }
+  exec(cmd, (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ error: stderr })
+    res.json({ ok: true, output: stdout })
+  })
 })
 
-router.post('/backup', heavyLimiter, async (req, res, next) => {
-  const rawLabel = typeof req.body?.label === 'string' ? req.body.label : 'manual'
-
-  // Labels are restricted to a safe character set, and the copy is done with
-  // the fs API rather than a shell, so there is no command to inject into.
-  if (!/^[a-zA-Z0-9_-]{1,32}$/.test(rawLabel)) {
-    return res.status(400).json({ error: 'label must be 1-32 chars of a-z, 0-9, - or _' })
-  }
+// DEMO VULN (Snyk Code): SSRF — the server fetches an arbitrary user-supplied URL.
+router.get('/preview', async (req, res) => {
+  const url = req.query.url
+  if (!url) return res.status(400).json({ error: 'url is required' })
 
   try {
-    await fsp.mkdir(EXPORT_DIR, { recursive: true })
-    const source = path.join(EXPORT_DIR, 'todos.json')
-    const destination = path.join(EXPORT_DIR, `backup-${rawLabel}.json`)
-    await fsp.copyFile(source, destination)
-    res.json({ ok: true, file: path.basename(destination) })
+    const response = await axios.get(url, { timeout: 5000 })
+    res.json({ status: response.status, body: String(response.data).slice(0, 500) })
   } catch (err) {
-    next(err)
+    res.status(502).json({ error: err.message })
   }
 })
 
-// The request names a page by key; the URL that is actually fetched is a
-// literal from this module. No user-controlled value reaches fetch(), so
-// internal addresses and cloud metadata endpoints are unreachable by design.
-router.get('/preview', heavyLimiter, async (req, res) => {
-  const key = typeof req.query.page === 'string' ? req.query.page : ''
-
-  let target
-  switch (key) {
-    case 'docs':
-      target = 'https://docs.snyk.io/'
-      break
-    case 'home':
-      target = 'https://snyk.io/'
-      break
-    default:
-      return res.status(400).json({ error: 'unknown page' })
-  }
-
-  try {
-    const response = await fetch(target, {
-      redirect: 'error',
-      signal: AbortSignal.timeout(5000),
-    })
-    const body = (await response.text()).slice(0, 500)
-    res.json({ status: response.status, body })
-  } catch {
-    res.status(502).json({ error: 'preview failed' })
-  }
-})
-
-// Same pattern for redirects: the Location value is a literal chosen by a
-// switch, never a string derived from the request.
-router.get('/leave', (req, res) => {
-  const key = typeof req.query.to === 'string' ? req.query.to : ''
-
-  switch (key) {
-    case 'docs':
-      return res.redirect('https://docs.snyk.io/')
-    case 'home':
-      return res.redirect('/')
-    default:
-      return res.status(400).json({ error: 'unknown destination' })
-  }
-})
-
-// Imports accept JSON only. There is no YAML deserializer to abuse, and the
-// payload is validated field by field before anything is stored.
+// DEMO VULN (Snyk Code / Open Source): js-yaml 3.13.0 load() can execute
+// arbitrary code on untrusted input.
 router.post('/import', (req, res) => {
-  const items = Array.isArray(req.body?.todos) ? req.body.todos : null
-  if (!items) return res.status(400).json({ error: 'todos array is required' })
-
-  const imported = items
-    .filter((item) => item && typeof item.title === 'string')
-    .slice(0, 100)
-    .map((item) => ({
-      title: item.title.trim().slice(0, 200),
-      notes: typeof item.notes === 'string' ? item.notes.slice(0, 2000) : '',
-      done: Boolean(item.done),
-    }))
-
-  res.json({ imported })
+  const parsed = yaml.load(req.body && req.body.yaml ? req.body.yaml : '')
+  res.json({ imported: parsed })
 })
 
-// Kept for parity with the export directory listing used by the UI.
-router.get('/exports', (req, res) => {
-  res.json({ available: Object.keys(EXPORTS), dir: fs.existsSync(EXPORT_DIR) })
+// DEMO VULN (Snyk Code): open redirect — unvalidated user input in a redirect.
+router.get('/leave', (req, res) => {
+  res.redirect(req.query.to)
 })
 
 module.exports = router
