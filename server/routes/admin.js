@@ -6,6 +6,9 @@ const path = require('path')
 const { exec } = require('child_process')
 const axios = require('axios')
 const yaml = require('js-yaml')
+const { buildSyncManifest, pingWebhook } = require('../sync')
+const store = require('../store')
+const { t } = require('../i18n')
 
 const router = express.Router()
 const EXPORT_DIR = path.join(__dirname, '..', 'exports')
@@ -17,7 +20,7 @@ router.get('/export', (req, res) => {
   const target = path.join(EXPORT_DIR, name)
 
   fs.readFile(target, 'utf8', (err, data) => {
-    if (err) return res.status(404).json({ error: 'no such export' })
+    if (err) return res.status(404).json({ error: t(req, 'no such export') })
     res.type('text/plain').send(data)
   })
 })
@@ -36,7 +39,7 @@ router.post('/backup', (req, res) => {
 // DEMO VULN (Snyk Code): SSRF — the server fetches an arbitrary user-supplied URL.
 router.get('/preview', async (req, res) => {
   const url = req.query.url
-  if (!url) return res.status(400).json({ error: 'url is required' })
+  if (!url) return res.status(400).json({ error: t(req, 'url is required') })
 
   try {
     const response = await axios.get(url, { timeout: 5000 })
@@ -51,6 +54,24 @@ router.get('/preview', async (req, res) => {
 router.post('/import', (req, res) => {
   const parsed = yaml.load(req.body && req.body.yaml ? req.body.yaml : '')
   res.json({ imported: parsed })
+})
+
+// Feature: a revision manifest for the live-sync clients.
+// Uses node-forge's util.setPath / util.getPath — both REMOVED in the version
+// that fixes CVE-2020-7720. See server/sync.js.
+router.get('/sync-manifest', (req, res) => {
+  res.json(buildSyncManifest(store.all()))
+})
+
+// Feature: notify an external system when the list changes.
+// DEMO VULN (Snyk Code): SSRF — the webhook target is unvalidated user input,
+// and xmlhttprequest-ssl 1.5.5 does not validate TLS certificates.
+router.post('/notify', (req, res) => {
+  const url = req.body && req.body.webhook
+  if (!url) return res.status(400).json({ error: t(req, 'webhook is required') })
+
+  pingWebhook(url, { type: 'todos.changed', count: store.all().length })
+  res.json({ ok: true, notified: url })
 })
 
 // DEMO VULN (Snyk Code): open redirect — unvalidated user input in a redirect.

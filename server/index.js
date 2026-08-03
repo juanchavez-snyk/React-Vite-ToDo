@@ -6,6 +6,7 @@ const cors = require('cors')
 const todos = require('./routes/todos')
 const admin = require('./routes/admin')
 const auth = require('./routes/auth')
+const { attachLiveSync } = require('./sync')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -21,6 +22,9 @@ app.use('/api/auth', auth)
 
 app.get('/api/health', (req, res) => res.json({ ok: true }))
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[api] listening on http://localhost:${PORT}`)
 })
+
+// Live sync over websockets — see server/sync.js.
+attachLiveSync(server)
