@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reporting sidecar for the todo app. Small on purpose — it exists so the demo
+  has a second ecosystem (Maven) alongside the two npm manifests, and so the
+  Snyk Breakability "drops an active LTS" scenario has somewhere to live.
+
+  DEMO: every dependency version here is intentionally vulnerable.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.snyk.demo</groupId>
+  <artifactId>todo-reporting</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>todo-reporting</name>
+  <description>Reporting sidecar for the Snyk demo todo app</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!--
+      DEMO BREAKABILITY (high, "LTS drop"): this build targets Java 11, an
+      active LTS that plenty of enterprise pipelines are still standardised on.
+      Spring Framework 6 raises the floor to Java 17 and moves javax.* to
+      jakarta.*, so the security upgrade below cannot be taken without also
+      moving the whole build off Java 11. That is why Snyk scores it HIGH:
+      it does not just change code, it breaks builds on standard environments.
+    -->
+    <maven.compiler.release>11</maven.compiler.release>
+    <spring.version>5.3.18</spring.version>
+  </properties>
+
+  <dependencies>
+    <!--
+      DEMO VULN (Snyk Open Source): spring-core 5.3.18 predates the fixes for
+      several high-severity issues, including the Spring4Shell-adjacent
+      data-binding problems and DoS advisories in the 5.3.x line.
+
+      The remediation Snyk offers is Spring Framework 6.x.
+      Verify with: snyk_breakability_check org.springframework:spring-core 5.3.18 -> 6.0.0
+    -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-core</artifactId>
+      <version>${spring.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+      <version>${spring.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-webmvc</artifactId>
+      <version>${spring.version}</version>
+    </dependency>
+
+    <!--
+      javax.* servlet API. Spring 6 requires the jakarta.* namespace instead,
+      so this coordinate has to be swapped as part of the same upgrade —
+      another reason the Breakability score lands high.
+    -->
+    <dependency>
+      <groupId>javax.servlet</groupId>
+      <artifactId>javax.servlet-api</artifactId>
+      <version>4.0.1</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!--
+      DEMO VULN (Snyk Open Source): jackson-databind 2.9.10.4 has known
+      deserialization advisories.
+    -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.9.10.4</version>
+    </dependency>
+
+    <!--
+      DEMO VULN (Snyk Open Source): Log4Shell (CVE-2021-44228). Kept because it
+      is the one advisory every audience recognises on sight.
+    -->
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>2.14.1</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

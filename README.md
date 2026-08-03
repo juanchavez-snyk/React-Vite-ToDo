@@ -14,10 +14,16 @@ instead of scanning an already-broken repo.
 |---|---|---|
 | **`v-one`** | Secure baseline | 0 Open Source, 0 Code, 0 IaC, 0 base-image vulns |
 | **`v-two`** | Same app, vulnerabilities introduced | 58 + 85 Open Source, 16 Code, 38 IaC, 546 container |
+| **`jchavez/breakability-demo`** | Adds the Breakability upgrade-risk scenarios | 73 + 103 Open Source, plus a Maven manifest |
 
-Open Source counts are per manifest: **58** unique issues in `package.json` and
-**85** in `server/package.json` (102 distinct advisories across both, since
-`axios` and `lodash` appear in each). The CLI's text output prints one line per
+The breakability branch is meant to be shown as an **open PR against `main`**,
+not merged — see [docs/07-breakability.md](docs/07-breakability.md). Merging it
+would make `main` vulnerable and break the clean-baseline premise below.
+
+Open Source counts are per manifest: on `v-two`, **58** unique issues in
+`package.json` and **85** in `server/package.json` (102 distinct advisories
+across both, since `axios` and `lodash` appear in each). On the breakability
+branch those become **73** and **103**. The CLI's text output prints one line per
 dependency *path*, so it shows a larger number again — worth knowing before
 someone challenges your figures.
 
@@ -78,15 +84,20 @@ memory, so restarting the API resets to seed data — handy between demo runs.
 src/                      React frontend
   markdown.js             single sanitized markdown renderer (v-one only)
   api.js                  API client
+  stats.js                lodash 3 summary helpers (breakability: API removal)
   components/
     SharedNote.jsx        ?note= URL rendering
     TodoItem.jsx          markdown notes rendering
 server/                   Express API (own package.json)
   index.js                app setup, CORS, rate limiting
+  sync.js                 websocket live sync, forge manifest, webhook ping
+  i18n.js                 localized API error messages (y18n)
   routes/
     todos.js              CRUD + search
     admin.js              export, backup, preview, redirect, import
     auth.js               login, reset, session
+service/                  Java reporting sidecar (Maven — breakability: LTS drop)
+  pom.xml                 Spring 5.3.18 on Java 11
 infra/
   terraform/main.tf       S3, RDS, security groups, IAM, KMS
   k8s/deployment.yaml     Deployment, Service, NetworkPolicy

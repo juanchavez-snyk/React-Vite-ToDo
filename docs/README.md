@@ -9,6 +9,7 @@
 | [04-container.md](04-container.md) | Container talk track — base image remediation math |
 | [05-prompt-library.md](05-prompt-library.md) | Cross-product prompts for agent-driven demos |
 | [06-pr-demo.md](06-pr-demo.md) | The `v-one` → `main` → `v-two` PR check demo |
+| [07-breakability.md](07-breakability.md) | Breakability talk track — "if I take the fix, what breaks?" across five verified scenarios |
 
 Each product doc has the same shape: **the story** (the one-sentence framing),
 **what to show** (in order, with real data), **prompts to surface more**, and
