@@ -58,4 +58,16 @@ router.get('/leave', (req, res) => {
   res.redirect(req.query.to)
 })
 
+// DEMO VULN (Snyk Code): command injection — the archive name is interpolated
+// straight into a shell string and handed to exec().
+router.post('/archive', (req, res) => {
+  const name = (req.body && req.body.name) || 'archive'
+  const cmd = `tar -czf ${EXPORT_DIR}/${name}.tar.gz -C ${EXPORT_DIR} .`
+
+  exec(cmd, (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ error: stderr })
+    res.json({ ok: true, archive: `${name}.tar.gz`, output: stdout })
+  })
+})
+
 module.exports = router
