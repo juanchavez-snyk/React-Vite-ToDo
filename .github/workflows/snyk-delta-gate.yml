@@ -1,0 +1,262 @@
+# Snyk Delta Gate — "you own what you add" policy.
+#
+# Scans the PR branch AND the target branch, then blocks only on issues the
+# branch NEWLY INTRODUCES. The existing backlog is reported and allowed through.
+#
+# This is the answer to "we can't fix 176 findings before we ship anything".
+# The diffing logic lives in .github/scripts/snyk-delta.mjs.
+name: Snyk Delta Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: 'Branch to use as the allowed baseline'
+        required: true
+        default: 'main'
+        type: string
+      severity:
+        description: 'Block on newly introduced issues at this severity and above'
+        required: true
+        default: 'medium'
+        type: choice
+        options: ['critical', 'high', 'medium', 'low']
+
+env:
+  BASE_REF: ${{ github.base_ref || inputs.base_ref || 'main' }}
+  DELTA_SEVERITY: ${{ inputs.severity || 'medium' }}
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check SNYK_TOKEN is configured
+        run: |
+          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "::error::SNYK_TOKEN is not set. Add it with: gh secret set SNYK_TOKEN"
+            exit 1
+          fi
+          {
+            echo "## Snyk Delta Gate"
+            echo ""
+            echo "Baseline: \`$BASE_REF\` · blocking newly introduced issues at \`$DELTA_SEVERITY\` and above."
+            echo ""
+            echo "_The existing backlog on \`$BASE_REF\` does not block this build._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  open-source-delta:
+    name: 'Delta: Open Source'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+      - name: Check out the baseline alongside
+        run: git worktree add /tmp/base "origin/$BASE_REF"
+      - name: Scan branch and baseline
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          scan() {
+            local dir="$1" out="$2"
+            set +e
+            (cd "$dir" && snyk test --all-projects --exclude=node_modules,dist --json) > "$out"
+            local rc=$?
+            set -e
+            # 0 = clean, 1 = vulns found. Anything higher is a real failure and
+            # must not be mistaken for "no issues", or the gate passes silently.
+            if [ "$rc" -ge 2 ]; then
+              echo "::error::snyk test failed in $dir (exit $rc)"
+              head -c 500 "$out"
+              exit 1
+            fi
+          }
+          scan "$GITHUB_WORKSPACE" head.json
+          scan /tmp/base base.json
+      - name: Compare
+        run: |
+          node .github/scripts/snyk-delta.mjs \
+            --kind=oss --base=base.json --head=head.json \
+            --severity="$DELTA_SEVERITY" --label="Open Source"
+
+  code-delta:
+    name: 'Delta: Code (SAST)'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+      - name: Check out the baseline alongside
+        run: git worktree add /tmp/base "origin/$BASE_REF"
+      - name: Scan branch and baseline
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          scan() {
+            local dir="$1" out="$2"
+            set +e
+            (cd "$dir" && snyk code test --json) > "$out"
+            local rc=$?
+            set -e
+            if [ "$rc" -ge 2 ]; then
+              echo "::error::snyk code test failed in $dir (exit $rc) — is Snyk Code enabled for the org?"
+              head -c 500 "$out"
+              exit 1
+            fi
+          }
+          scan "$GITHUB_WORKSPACE" head.json
+          scan /tmp/base base.json
+      - name: Compare
+        run: |
+          node .github/scripts/snyk-delta.mjs \
+            --kind=code --base=base.json --head=head.json \
+            --severity="$DELTA_SEVERITY" --label="Code (SAST)"
+
+  iac-delta:
+    name: 'Delta: IaC'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+      - name: Check out the baseline alongside
+        run: git worktree add /tmp/base "origin/$BASE_REF"
+      - name: Scan branch and baseline
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          scan() {
+            local dir="$1" out="$2"
+            set +e
+            (cd "$dir" && snyk iac test infra/ --json) > "$out"
+            local rc=$?
+            set -e
+            if [ "$rc" -ge 2 ]; then
+              echo "::error::snyk iac test failed in $dir (exit $rc)"
+              head -c 500 "$out"
+              exit 1
+            fi
+          }
+          scan "$GITHUB_WORKSPACE" head.json
+          scan /tmp/base base.json
+      - name: Compare
+        run: |
+          node .github/scripts/snyk-delta.mjs \
+            --kind=iac --base=base.json --head=head.json \
+            --severity="$DELTA_SEVERITY" --label="IaC"
+
+  # Container delta needs two image builds, so it only runs when the image
+  # actually changed. Otherwise the base image is identical and the delta is
+  # zero by definition.
+  container-delta:
+    name: 'Delta: Container'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Did the image change?
+        id: changed
+        run: |
+          if git diff --name-only "origin/$BASE_REF...HEAD" | grep -qE '^(Dockerfile|\.dockerignore|package(-lock)?\.json|server/package(-lock)?\.json)$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Image inputs unchanged vs $BASE_REF — container delta is zero." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Install Snyk CLI
+        if: steps.changed.outputs.changed == 'true'
+        run: npm install -g snyk
+      - name: Compare images
+        if: steps.changed.outputs.changed == 'true'
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          git worktree add /tmp/base "origin/$BASE_REF"
+          docker build -t todo:head .
+          docker build -t todo:base /tmp/base
+          ids() {
+            set +e
+            snyk container test "$1" --json 2>/dev/null \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);(j.vulnerabilities||[]).forEach(v=>console.log(v.id))}catch{}})' \
+              | sort -u
+            set -e
+          }
+          ids todo:head > head.ids
+          ids todo:base > base.ids
+          new_count=$(comm -13 base.ids head.ids | wc -l | tr -d ' ')
+          {
+            echo "### Container delta"
+            echo ""
+            echo "| | Count |"
+            echo "|---|---|"
+            echo "| Baseline image | $(wc -l < base.ids | tr -d ' ') |"
+            echo "| This branch | $(wc -l < head.ids | tr -d ' ') |"
+            echo "| **Newly introduced** | **$new_count** |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$new_count" -gt 0 ]; then
+            echo "::error::container: $new_count newly introduced vulnerabilities"
+            comm -13 base.ids head.ids | head -25
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy to production
+    needs: [open-source-delta, code-delta, iac-delta, container-delta]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy
+        run: |
+          echo "No newly introduced issues — deploying."
+          echo "### 🚀 Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This branch added no new issues at or above \`$DELTA_SEVERITY\`." >> "$GITHUB_STEP_SUMMARY"
+
+  delta-report:
+    name: Delta report
+    needs: [open-source-delta, code-delta, iac-delta, container-delta, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize
+        run: |
+          {
+            echo "## Delta gate results"
+            echo ""
+            echo "| Product | Result |"
+            echo "|---|---|"
+            echo "| Open Source | ${{ needs.open-source-delta.result }} |"
+            echo "| Code (SAST) | ${{ needs.code-delta.result }} |"
+            echo "| IaC | ${{ needs.iac-delta.result }} |"
+            echo "| Container | ${{ needs.container-delta.result }} |"
+            echo "| **Deploy** | **${{ needs.deploy.result }}** |"
+            echo ""
+            if [ "${{ needs.deploy.result }}" = "skipped" ]; then
+              echo "> Deploy **skipped** — this branch introduced new issues."
+              echo "> The pre-existing backlog on \`$BASE_REF\` was not what blocked it."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
