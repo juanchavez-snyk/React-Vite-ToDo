@@ -9,6 +9,7 @@
 | [04-container.md](04-container.md) | Container talk track — base image remediation math |
 | [05-prompt-library.md](05-prompt-library.md) | Cross-product prompts for agent-driven demos |
 | [06-pr-demo.md](06-pr-demo.md) | The `v-one` → `main` → `v-two` PR check demo |
+| [08-pipeline.md](08-pipeline.md) | CI/CD gates — two GitHub Actions pipelines that block deployment, absolute vs. delta policy |
 
 Each product doc has the same shape: **the story** (the one-sentence framing),
 **what to show** (in order, with real data), **prompts to surface more**, and
