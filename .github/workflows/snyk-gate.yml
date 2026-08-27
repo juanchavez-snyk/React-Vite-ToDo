@@ -1,0 +1,238 @@
+# Snyk Gate — absolute threshold policy.
+#
+# Runs all four Snyk products in parallel. Any CRITICAL blocks the deploy job;
+# highs and below are reported but do not block. Change the threshold at run
+# time via the workflow_dispatch input.
+#
+# The point of the demo is the `deploy` job: it never runs while a gate is red.
+name: Snyk Gate
+
+on:
+  # The absolute gate guards the default branch and is the one you run manually
+  # in a demo. PRs get the delta gate instead, so a pull request doesn't pay for
+  # eight scan jobs and two image builds.
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      severity:
+        description: 'Block the deploy at this severity and above'
+        required: true
+        default: 'critical'
+        type: choice
+        options: ['critical', 'high', 'medium', 'low']
+
+env:
+  GATE_SEVERITY: ${{ github.event.inputs.severity || 'critical' }}
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check SNYK_TOKEN is configured
+        run: |
+          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "::error::SNYK_TOKEN is not set. Add it with: gh secret set SNYK_TOKEN"
+            echo "### ❌ SNYK_TOKEN missing" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo 'Add the secret, then re-run: `gh secret set SNYK_TOKEN`' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Gate severity: $GATE_SEVERITY"
+          echo "### Snyk Gate — blocking at \`$GATE_SEVERITY\` and above" >> "$GITHUB_STEP_SUMMARY"
+
+  open-source:
+    name: 'Gate: Open Source'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+      - name: snyk test (both manifests)
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set +e
+          snyk test --all-projects --exclude=node_modules,dist \
+            --severity-threshold="$GATE_SEVERITY" | tee oss.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Open Source"
+            echo ""
+            if [ "$rc" -eq 0 ]; then
+              echo "✅ No issues at or above \`$GATE_SEVERITY\`."
+            elif [ "$rc" -eq 1 ]; then
+              echo "❌ Issues at or above \`$GATE_SEVERITY\` — deploy blocked."
+              echo ""
+              echo '```'
+              grep -E '^(✗|  Introduced|Tested)' oss.txt | head -30 || true
+              echo '```'
+            else
+              echo "⚠️ Scan error (exit $rc)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -le 1 ] || { echo "::error::scan failed to run (exit $rc)"; exit "$rc"; }
+          exit "$rc"
+
+  code:
+    name: 'Gate: Code (SAST)'
+    needs: preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+      - name: snyk code test
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set +e
+          snyk code test --severity-threshold="$GATE_SEVERITY" \
+            --sarif-file-output=snyk-code.sarif | tee code.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Code (SAST)"
+            echo ""
+            if [ "$rc" -eq 0 ]; then
+              echo "✅ No issues at or above \`$GATE_SEVERITY\`."
+            elif [ "$rc" -eq 1 ]; then
+              echo "❌ Issues at or above \`$GATE_SEVERITY\` — deploy blocked."
+            else
+              echo "⚠️ Scan error (exit $rc). Snyk Code must be enabled for the org."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -le 1 ] || { echo "::error::snyk code test failed (exit $rc) — is Snyk Code enabled?"; exit "$rc"; }
+          exit "$rc"
+      # Surfaces findings in the repo's Security tab. Never allowed to fail the gate.
+      - name: Upload SARIF to GitHub code scanning
+        if: always() && hashFiles('snyk-code.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-code.sarif
+
+  iac:
+    name: 'Gate: IaC'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+      - name: snyk iac test
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set +e
+          snyk iac test infra/ --severity-threshold="$GATE_SEVERITY" | tee iac.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Infrastructure as Code"
+            echo ""
+            if [ "$rc" -eq 0 ]; then
+              echo "✅ No misconfigurations at or above \`$GATE_SEVERITY\`."
+            elif [ "$rc" -eq 1 ]; then
+              echo "❌ Misconfigurations at or above \`$GATE_SEVERITY\` — deploy blocked."
+            else
+              echo "⚠️ Scan error (exit $rc)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -le 1 ] || { echo "::error::snyk iac test failed (exit $rc)"; exit "$rc"; }
+          exit "$rc"
+
+  container:
+    name: 'Gate: Container'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+      - name: Build image
+        run: docker build -t snyk-demo-todo:ci .
+      - name: snyk container test
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set +e
+          snyk container test snyk-demo-todo:ci --file=Dockerfile \
+            --severity-threshold="$GATE_SEVERITY" | tee container.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Container"
+            echo ""
+            if [ "$rc" -eq 0 ]; then
+              echo "✅ No image issues at or above \`$GATE_SEVERITY\`."
+            elif [ "$rc" -eq 1 ]; then
+              echo "❌ Image issues at or above \`$GATE_SEVERITY\` — deploy blocked."
+            else
+              echo "⚠️ Scan error (exit $rc)."
+            fi
+            echo ""
+            grep -iE 'base image|recommendations|Tested [0-9]+ dependencies' container.txt | head -12 || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -le 1 ] || { echo "::error::snyk container test failed (exit $rc)"; exit "$rc"; }
+          exit "$rc"
+
+  # The demo payload: this job is SKIPPED whenever any gate above is red.
+  deploy:
+    name: Deploy to production
+    needs: [open-source, code, iac, container]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        run: |
+          echo "All four Snyk gates passed — deploying."
+          echo "  docker push snyk-demo-todo:${GITHUB_SHA::7}"
+          echo "  kubectl apply -f infra/k8s/deployment.yaml"
+          echo "### 🚀 Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "All four gates passed, so this step ran." >> "$GITHUB_STEP_SUMMARY"
+
+  # Runs even when gates fail, so the summary always explains what happened.
+  gate-report:
+    name: Gate report
+    needs: [open-source, code, iac, container, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize
+        run: |
+          {
+            echo "## Gate results"
+            echo ""
+            echo "| Product | Result |"
+            echo "|---|---|"
+            echo "| Open Source | ${{ needs.open-source.result }} |"
+            echo "| Code (SAST) | ${{ needs.code.result }} |"
+            echo "| IaC | ${{ needs.iac.result }} |"
+            echo "| Container | ${{ needs.container.result }} |"
+            echo "| **Deploy** | **${{ needs.deploy.result }}** |"
+            echo ""
+            if [ "${{ needs.deploy.result }}" = "skipped" ]; then
+              echo "> Deploy was **skipped** — at least one Snyk gate failed at \`$GATE_SEVERITY\`."
+              echo "> Nothing shipped. That is the control working."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
