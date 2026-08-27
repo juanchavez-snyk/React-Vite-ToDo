@@ -3,7 +3,7 @@
 const express = require('express')
 const fs = require('fs')
 const path = require('path')
-const { exec } = require('child_process')
+const { exec, execFile } = require('child_process')
 const axios = require('axios')
 const yaml = require('js-yaml')
 
@@ -61,12 +61,14 @@ router.get('/leave', (req, res) => {
 // DEMO VULN (Snyk Code): command injection — the archive name is interpolated
 // straight into a shell string and handed to exec().
 router.post('/archive', (req, res) => {
-  const name = (req.body && req.body.name) || 'archive'
-  const cmd = `tar -czf ${EXPORT_DIR}/${name}.tar.gz -C ${EXPORT_DIR} .`
-
-  exec(cmd, (err, stdout, stderr) => {
+  const rawName = (req.body && req.body.name) || 'archive'
+  if (!/^[A-Za-z0-9_-]+$/.test(rawName)) {
+    return res.status(400).json({ error: 'invalid name' })
+  }
+  const safeName = rawName
+  execFile('tar', ['-czf', `${EXPORT_DIR}/${safeName}.tar.gz`, '-C', EXPORT_DIR, '.'], (err, stdout, stderr) => {
     if (err) return res.status(500).json({ error: stderr })
-    res.json({ ok: true, archive: `${name}.tar.gz`, output: stdout })
+    res.json({ ok: true, archive: `${safeName}.tar.gz`, output: stdout })
   })
 })
 
