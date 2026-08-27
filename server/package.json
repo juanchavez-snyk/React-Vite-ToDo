@@ -18,6 +18,10 @@
     "lodash": "4.17.15",
     "axios": "0.21.1",
     "handlebars": "4.7.6",
-    "tar": "4.4.13"
+    "tar": "4.4.13",
+    "ws": "8.17.0",
+    "y18n": "3.2.1",
+    "node-forge": "0.9.0",
+    "xmlhttprequest-ssl": "1.5.5"
   }
 }

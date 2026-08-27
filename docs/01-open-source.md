@@ -1,7 +1,11 @@
 # Snyk Open Source — Talk Track
 
 **Scanned:** [package.json](../package.json) (web) and [server/package.json](../server/package.json) (API)
-**Verified:** 58 unique issues in web, 85 in the API.
+**Verified:** 73 unique issues in web, 103 in the API (176 total).
+
+> Counts rose from 58/85 when the Breakability demo packages were added — see
+> [07-breakability.md](07-breakability.md). That doc covers the *upgrade* side of
+> Open Source: not "what's vulnerable" but "what does the fix cost".
 
 ```bash
 snyk test
@@ -155,9 +159,10 @@ Are any vulnerable transitive dependencies here reachable only through devDepend
 ## Likely objections
 
 **"We already run `npm audit`."** Run both. `npm audit` has no reachability
-context, no fix prioritization, and no view of the `marked` → XSS chain you're
-about to demo. Also point out that `npm audit` reports on this repo too — the
-install printed 9 and 13 vulnerabilities. Snyk found 58 and 85.
+context, no fix prioritization, no breakability scoring, and no view of the
+`marked` → XSS chain you're about to demo. Also point out that `npm audit`
+reports on this repo too — the install printed 27 vulnerabilities for the web
+app. Snyk found 73.
 
 **"Most of these are low severity."** Agreed, and that's the argument for
 prioritization rather than for ignoring the tool. Filter to

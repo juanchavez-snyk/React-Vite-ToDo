@@ -4,6 +4,7 @@ import AddTodo from './components/AddTodo.jsx'
 import SharedNote from './components/SharedNote.jsx'
 import { fetchTodos, createTodo, updateTodo, deleteTodo } from './api.js'
 import { downloadIcs } from './calendar.js'
+import { summarize } from './stats.js'
 
 const FILTERS = ['all', 'active', 'done']
 
@@ -33,13 +34,16 @@ export default function App() {
     setTodos((prev) => prev.filter((t) => t.id !== id))
   }
 
-  const visible = todos.filter((t) => {
-    if (filter === 'active') return !t.done
-    if (filter === 'done') return t.done
+  const visible = todos.filter((item) => {
+    if (filter === 'active') return !item.done
+    if (filter === 'done') return item.done
     return true
   })
 
-  const remaining = todos.filter((t) => !t.done).length
+  const remaining = todos.filter((item) => !item.done).length
+
+  // Uses lodash 3 APIs that lodash 4 removed — see src/stats.js.
+  const stats = summarize(todos)
 
   return (
     <main className="app">
@@ -48,6 +52,12 @@ export default function App() {
         <p className="sub">
           {remaining} item{remaining === 1 ? '' : 's'} left
         </p>
+        {stats.tags.length > 0 && (
+          <p className="tags">
+            tags: {stats.tags.join(', ')}
+            {stats.hasUrgent ? ' ⚠' : ''}
+          </p>
+        )}
       </header>
 
       <SharedNote />
