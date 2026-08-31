@@ -37,6 +37,18 @@ Two details worth knowing before you present:
 the Setup action to install the CLI, then `snyk code test`. If someone asks why
 that job looks different from the others, that's the answer.
 
+**"Where's the install step?"** You'll get asked this. Most of these jobs don't
+have one because they don't need one. The `node`, `docker` and `iac` actions are
+Docker container actions — their `action.yml` declares
+`runs: using: "docker"` against `snyk/snyk:node`, `snyk/snyk:docker` and
+`snyk/snyk:alpine`. The CLI is already in the image, so the job log shows a
+`Pull snyk/snyk:node` step rather than an install.
+
+`snyk/actions/setup` is the exception: it's a composite action that downloads the
+CLI onto the runner, which is why the Code job installs and the others don't.
+With `setup` you own the runtime environment — that's why Snyk's own example
+pairs it with `actions/setup-go`.
+
 **`snyk test` gates, `snyk monitor` doesn't.** `snyk test` is synchronous and
 exits non-zero when it finds issues at or above the threshold — that exit code is
 what fails the job. `snyk monitor` is asynchronous: it posts a snapshot to the
