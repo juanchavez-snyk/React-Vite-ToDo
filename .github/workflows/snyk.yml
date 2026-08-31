@@ -1,0 +1,97 @@
+# Snyk — the documented GitHub Actions integration, nothing more.
+#
+# Every step below comes straight from Snyk's published examples:
+#   https://github.com/snyk/actions
+#   https://docs.snyk.io/developer-tools/integrations/snyk-ci-cd-integrations/github-actions-for-snyk-setup-and-checking-for-vulnerabilities
+#
+# How the gate works: the Snyk Actions wrap the Snyk CLI, and `snyk test` exits
+# non-zero when it finds issues at or above --severity-threshold. That exit code
+# fails the job. There is no wrapper script interpreting results — the product
+# decides pass/fail.
+#
+# To stop a red job from being merged, enable branch protection on main and mark
+# these checks required. That is a GitHub setting, not pipeline code.
+name: Snyk
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Snyk Open Source. --all-projects picks up both manifests in this repo
+  # (./package.json and ./server/package.json).
+  open-source:
+    name: Snyk Open Source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --all-projects --severity-threshold=high
+
+  # Snyk Code. There is no snyk/actions/code, so the documented approach is the
+  # Setup action to install the CLI, then run `snyk code test` directly.
+  code:
+    name: Snyk Code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: snyk/actions/setup@master
+      - name: Run Snyk Code to check for vulnerabilities
+        run: snyk code test --severity-threshold=high
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # Snyk Infrastructure as Code.
+  iac:
+    name: Snyk IaC
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Run Snyk to check configuration files for security issues
+        uses: snyk/actions/iac@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          file: infra/
+          args: --severity-threshold=high
+
+  # Snyk Container.
+  image:
+    name: Snyk Container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build --pull -t snyky .
+      - name: Run Snyk to check Docker image for vulnerabilities
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: snyky
+          args: --file=Dockerfile --severity-threshold=high
+
+  # `snyk monitor` posts a snapshot to the Snyk UI so you get alerted when a new
+  # vulnerability is disclosed against code you already shipped. It is
+  # asynchronous and does not gate the build, so it runs on the default branch
+  # only — not on every pull request.
+  monitor:
+    name: Snyk Monitor
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Run Snyk to monitor for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: monitor
+          args: --all-projects

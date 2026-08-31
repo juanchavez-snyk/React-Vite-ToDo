@@ -1,122 +1,132 @@
-# Pipeline Gates — Talk Track
+# Pipeline — Talk Track
 
-**Files:** [.github/workflows/snyk-gate.yml](../.github/workflows/snyk-gate.yml),
-[.github/workflows/snyk-delta-gate.yml](../.github/workflows/snyk-delta-gate.yml),
-[.github/scripts/snyk-delta.mjs](../.github/scripts/snyk-delta.mjs)
+**File:** [.github/workflows/snyk.yml](../.github/workflows/snyk.yml)
 
 The PR demo ([06-pr-demo.md](06-pr-demo.md)) shows Snyk *commenting* on a pull
-request. This one shows Snyk *stopping a deployment*. Different audience: the PR
-demo sells to developers, this sells to whoever owns the release process.
+request. This one shows Snyk *failing a build*. Different audience: the PR demo
+sells to developers, this sells to whoever owns the release process.
+
+## Ground rule for this demo
+
+Everything in this workflow is Snyk's published GitHub Actions usage. No wrapper
+scripts, no result parsing, no bespoke gating logic. That is deliberate: if you
+demo something you built yourself, you own it, you maintain it, and the customer
+reasonably expects Snyk to support it. Every step here maps to a documented
+example:
+
+- [github.com/snyk/actions](https://github.com/snyk/actions) — the Actions and their properties
+- [GitHub actions for Snyk setup and checking for vulnerabilities](https://docs.snyk.io/developer-tools/integrations/snyk-ci-cd-integrations/github-actions-for-snyk-setup-and-checking-for-vulnerabilities)
+- [Snyk test and snyk monitor in CI/CD integration](https://docs.snyk.io/developer-tools/integrations/snyk-ci-cd-integrations/snyk-ci-cd-integration-deployment-and-strategies/snyk-test-and-snyk-monitor-in-ci-cd-integration)
+
+If a customer asks for behaviour that isn't in those pages, that's a scoping
+conversation, not something to improvise in a demo repo.
+
+## What the workflow runs
+
+| Job | Action | Command |
+|---|---|---|
+| Snyk Open Source | `snyk/actions/node@master` | `snyk test --all-projects --severity-threshold=high` |
+| Snyk Code | `snyk/actions/setup@master` + CLI | `snyk code test --severity-threshold=high` |
+| Snyk IaC | `snyk/actions/iac@master` | `snyk iac test infra/ --severity-threshold=high` |
+| Snyk Container | `snyk/actions/docker@master` | `snyk container test snyky --file=Dockerfile` |
+| Snyk Monitor | `snyk/actions/node@master` | `snyk monitor --all-projects` (default branch only) |
+
+Two details worth knowing before you present:
+
+**There is no `snyk/actions/code`.** Snyk Code in GitHub Actions is documented as
+the Setup action to install the CLI, then `snyk code test`. If someone asks why
+that job looks different from the others, that's the answer.
+
+**"Where's the install step?"** You'll get asked this. Most of these jobs don't
+have one because they don't need one. The `node`, `docker` and `iac` actions are
+Docker container actions — their `action.yml` declares
+`runs: using: "docker"` against `snyk/snyk:node`, `snyk/snyk:docker` and
+`snyk/snyk:alpine`. The CLI is already in the image, so the job log shows a
+`Pull snyk/snyk:node` step rather than an install.
+
+`snyk/actions/setup` is the exception: it's a composite action that downloads the
+CLI onto the runner, which is why the Code job installs and the others don't.
+With `setup` you own the runtime environment — that's why Snyk's own example
+pairs it with `actions/setup-go`.
+
+**`snyk test` gates, `snyk monitor` doesn't.** `snyk test` is synchronous and
+exits non-zero when it finds issues at or above the threshold — that exit code is
+what fails the job. `snyk monitor` is asynchronous: it posts a snapshot to the
+Snyk UI so you get alerted when a new CVE lands against code you already shipped.
+It doesn't gate anything, so it runs on `main` only, not on every PR.
 
 ## The story
 
-Everything else in this repo is advisory. A PR comment is a suggestion — a
-developer with a deadline can merge over it. The question a security lead
-actually has is: **"what physically prevents this from reaching production?"**
+A PR comment is a suggestion — a developer with a deadline can merge over it. The
+question a security lead actually has is: **"what physically prevents this from
+reaching production?"**
 
-The answer is a job that doesn't run. Both pipelines here end in a `deploy` job
-that depends on the scan jobs, so when a gate goes red the deploy is **skipped**,
-not failed-and-retried. Nothing ships.
+Two answers, and it's worth being precise about which layer does which:
 
-> "I can't stop someone from writing this code. I can stop it from reaching
-> your customers."
+1. **The job goes red.** `snyk test --severity-threshold=high` exits non-zero.
+   That's Snyk's doing.
+2. **The merge is blocked.** Branch protection on `main` with these checks marked
+   required. That's a GitHub setting you turn on once — not pipeline code.
 
-## Two policies, because there are two objections
+> "Snyk tells you it's not safe. Your branch protection rules are what make that
+> answer binding. Don't buy a scanner and then let people merge past it."
 
-Teams reject gating for two opposite reasons, so there are two workflows.
+## Demo
 
-| | **Snyk Gate** | **Snyk Delta Gate** |
-|---|---|---|
-| File | `snyk-gate.yml` | `snyk-delta-gate.yml` |
-| Blocks on | Any critical (tunable) | Only issues the branch *adds* |
-| Answers | "We need a hard floor" | "We can't fix 176 things first" |
-| Baseline | None — absolute threshold | The target branch |
-| Trigger | push to `main`, manual | PR (automatic), manual |
-
-Show whichever matches the objection you actually heard. If you have time, show
-both — the contrast is the point.
-
-## Demo 1 — the absolute gate
-
-Four products run in parallel, then `deploy`. It runs on every push to `main`,
-and manually on any ref — which is how you'll drive it live.
-
-```bash
-gh workflow run "Snyk Gate" --ref main -f severity=critical
-```
+Push a branch, or open a PR, and watch the checks. The four scan jobs run in
+parallel; on this repo Open Source, Code, Container and IaC all go red, because
+the app is intentionally vulnerable.
 
 ```bash
 gh run watch
 ```
 
-What the audience sees: four gates, some red, and **Deploy → skipped**. The run
-summary renders a table of results and, for each product, what it found.
+The severity threshold is the policy conversation. Change `--severity-threshold`
+in the workflow from `high` to `critical` and fewer jobs turn red:
 
-The severity is a `workflow_dispatch` input, which makes the most useful part of
-this demo interactive. Run it at `critical`, then re-run at `high`, and more
-gates turn red. That dial *is* the policy conversation:
+> "This threshold is the only real decision here. Set it too strict on day one
+> and your developers will disable the whole thing by Friday. Start where your
+> backlog lets you ship, then ratchet down."
 
-```bash
-gh workflow run "Snyk Gate" --ref main -f severity=high
-```
+It's per-job, so a team can be strict on container and lenient on IaC while they
+clean up. Security policy is rarely one number for everything.
 
-> "This number is the only real decision here. Set it too strict on day one and
-> your developers will disable the whole thing by Friday. Start at critical,
-> ratchet down once the backlog is under control."
+## "We have a backlog of 176 issues — gating means nothing ever ships"
 
-Worth calling out that the gate is per-product, so a team can be strict on
-container and lenient on IaC while they clean up. Security policy is rarely one
-number for everything.
+You will get this objection every time, and it's a fair one. **Do not solve it
+with CI scripting.** Snyk's answer is
+[Pull Request checks](https://docs.snyk.io/scan-fix-and-prevent/prevent/pull-request-checks),
+in the GitHub integration rather than in this workflow.
 
-## Demo 2 — the delta gate (the one that wins arguments)
+PR Checks run live tests of the "before and after" branch and **fail only if the
+new branch has more issues**. That before/after comparison is product behaviour —
+Snyk builds it, Snyk supports it, and nobody in the room has to maintain it.
 
-This is the answer to the objection you will *always* get: *"we have a backlog of
-176 issues, if you gate on that nothing ever ships again."* Correct. So don't.
+> "Your existing 176 issues don't block anything. What this developer added ten
+> minutes ago does. Nobody has to fix history to start being accountable for the
+> present."
 
-The delta gate scans the branch **and** the target branch, then blocks only on
-what the branch newly introduced. It runs on any PR automatically.
+Configure the fail conditions in the Snyk UI — including *only fail when a fix is
+available* and *only fail when the PR adds a dependency with issues*. See
+[Configure Pull Request checks](https://docs.snyk.io/scan-fix-and-prevent/prevent/pull-request-checks/configure-pull-request-checks).
 
-The [breakability PR](https://github.com/juanchavez-snyk/React-Vite-ToDo/pull/14)
-is a ready-made demo, because it adds exactly five vulnerable packages on top of
-`main`:
+So the layering you're actually selling is:
 
-```bash
-gh workflow run "Snyk Delta Gate" --ref jchavez/breakability-demo -f base_ref=main -f severity=medium
-```
+| Layer | Blocks on | Owned by |
+|---|---|---|
+| PR Checks | Issues the PR introduces | Snyk product, configured in the UI |
+| This workflow | Absolute threshold, any branch | Snyk Actions, documented |
+| Branch protection | A failing required check | GitHub, one-time setting |
 
-The summary reads roughly:
+If a customer genuinely needs "fail only on issues since the last build" *inside
+CI*, Snyk documents
+[`snyk-delta`](https://github.com/snyk-tech-services/snyk-delta) for that. Flag
+it as a snyk-tech-services tool, not core product, so expectations are set before
+anyone builds on it.
 
-| | Count |
-|---|---|
-| Baseline (allowed backlog) | 176 |
-| This branch | ~200 |
-| **Newly introduced** | **the new packages** |
+## Setup — one secret
 
-> "The 176 issues you already have did not block this build. The ones this
-> developer added ten minutes ago did. Nobody has to fix history to start being
-> accountable for the present."
-
-That reframing is usually what unblocks the whole rollout.
-
-### How the delta is computed
-
-[snyk-delta.mjs](../.github/scripts/snyk-delta.mjs) diffs two Snyk JSON files on
-a stable key per product:
-
-- **Open Source** — advisory ID + package + manifest. Deliberately *not* the
-  version, so a version bump that keeps the same advisory is still the same
-  finding, not a new one.
-- **Code** — rule ID + file path, with **no line number**. This matters: if line
-  numbers were in the key, adding an import at the top of a file would resurface
-  every finding below it as "newly introduced" and the gate would cry wolf.
-- **IaC** — issue ID + target file + resource path.
-- **Container** — only runs when the Dockerfile or a manifest actually changed.
-  Otherwise the base image is identical and the delta is zero by definition, so
-  the job skips instead of burning two image builds.
-
-## Setup — one secret, and it has to be you
-
-The pipelines need a `SNYK_TOKEN` repo secret. Get the value from
+The workflow needs a `SNYK_TOKEN` repo secret. Get the value from
 [app.snyk.io](https://app.snyk.io) → Account settings → Auth Token, then:
 
 ```bash
@@ -124,70 +134,56 @@ gh secret set SNYK_TOKEN
 ```
 
 That command prompts for the value and doesn't echo it or leave it in shell
-history. Until the secret exists, both workflows fail fast in a `preflight` job
-with an explicit message rather than four confusing auth errors.
+history.
 
-Two org-level prerequisites, worth checking before you present:
+Snyk Code must be enabled for the org, or the `code` job fails on an
+authorization error rather than on findings.
 
-- **Snyk Code must be enabled** for the org, or the SAST jobs exit 2. The
-  workflow reports that distinctly ("is Snyk Code enabled?") instead of
-  reporting it as "no issues found".
-- **A scan that errors never counts as a pass.** Snyk exits 0 for clean, 1 for
-  issues found, and 2+ for a real failure. Both workflows treat 2+ as a broken
-  build. This is the single most important line in the pipeline: a gate that
-  turns green when the scanner crashes is worse than no gate, because everyone
-  believes it.
+Note that GitHub does not pass repo secrets to workflows triggered from forked
+PRs, so the Snyk jobs will not run on fork contributions.
 
 ## Prompts to surface more
 
 ```
-Run the Snyk Gate workflow at critical, then at high, and show me which products change from pass to fail. Explain what that implies about where this team should set its initial policy.
+Change the severity threshold in the Snyk workflow from high to critical and tell me which jobs would flip from red to green, and what that implies about where this team should set its initial policy.
 ```
 
 ```
-The delta gate passed but the absolute gate failed on the same commit. Explain to a security lead why both results are correct.
+Explain the difference between what Snyk PR Checks block and what this CI workflow blocks, for a security lead who thinks they are the same control.
 ```
 
 ```
-Add a job to the gate workflow that posts the blocked findings as a PR comment, so the developer sees why the deploy was skipped without opening the Actions tab.
-```
-
-```
-Modify the delta gate so it also fails when a dependency's fix is available and the breakability score is low — the "you had no excuse" policy.
+Show me what a Snyk Code finding in this repo looks like in the CLI output, and what the developer would do to fix it.
 ```
 
 ## Likely objections
 
 **"Developers will just disable it."** They will, if you gate on the whole
-backlog on day one. That's what the delta gate is for: it makes the gate's
-demands proportional to what the developer actually did. Also point at the
-`severity` input — the policy is a dial, not a switch.
+backlog on day one. That's what PR Checks are for — they make the gate's demands
+proportional to what the developer actually did. Also point at the severity
+threshold: the policy is a dial, not a switch.
 
-**"This slows every build down."** The four scans run in parallel, and only the
-container job builds an image. The delta gate costs roughly double on the scan
-step because it scans the baseline too — that's the price of not blocking on
-history, and it's cheaper than the alternative of not gating.
+**"This slows every build down."** The scans run in parallel, and only the
+container job builds an image.
 
-**"We already scan in the IDE and on the PR."** Those are advisory. This is the
-one a developer can't click past. Defence in depth: the IDE catches it earliest
-and cheapest, the PR catches it during review, and the pipeline is what you can
-show an auditor.
+**"We already scan in the IDE and on the PR."** Those are advisory. Defence in
+depth: the IDE catches it earliest and cheapest, PR Checks catch it during
+review, and the pipeline is what you can show an auditor.
 
-**"Our deploy isn't in GitHub Actions."** The gate logic is
-`snyk test --severity-threshold=X` plus an exit code, which is portable to any
-CI system. The delta script is plain Node reading Snyk JSON — no Actions
-dependency. Only the YAML around it is GitHub-specific.
+**"Our deploy isn't in GitHub Actions."** The gate is `snyk test
+--severity-threshold=X` plus an exit code, which is portable to any CI system.
+Snyk publishes integrations for the common ones — see
+[Snyk CI/CD integrations](https://docs.snyk.io/developer-tools/integrations/snyk-ci-cd-integrations).
+Only the YAML around it is GitHub-specific.
 
 ## Caveats
 
-- **The `deploy` jobs are simulated.** They echo a `docker push` and a
-  `kubectl apply` rather than deploying anything. Don't imply otherwise; the
-  demo is the *gate*, not the deployment.
+- **This workflow does not deploy anything.** It scans. Blocking a release is
+  branch protection plus whatever ships your code — don't imply Snyk does the
+  deploying.
+- **A red job is not a blocked merge** until branch protection is switched on.
+  Demo it that way or the control looks stronger than it is.
+- **The actions are pinned to `@master`,** which is how Snyk documents them. If a
+  customer's supply-chain policy requires pinning to a SHA, that's a reasonable
+  ask and worth raising with them rather than glossing over.
 - **First run needs the secret.** See setup above.
-- **The delta gate compares against the target branch as it is right now.** If
-  `main` moves while a PR is open, the baseline moves with it. That's usually
-  what you want, but it means two runs of the same PR can differ.
-- **Code delta ignores line numbers by design.** The trade-off is that a genuinely
-  new finding of the *same rule in the same file* won't be counted as new. Worth
-  knowing before someone asks; it's the right trade for a gate, because the
-  alternative is constant false positives.

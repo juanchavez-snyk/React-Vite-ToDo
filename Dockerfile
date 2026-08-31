@@ -8,7 +8,13 @@ FROM node:14
 
 # DEMO VULN (Snyk Container): installs extra tooling into the runtime image and
 # never cleans the apt lists, widening the attack surface and image size.
-RUN apt-get update && apt-get install -y curl wget netcat vim git
+#
+# buster is past EOL and has been moved to archive.debian.org, so the default
+# mirrors 404. Repointed purely so the image still builds and Snyk Container has
+# something to scan — the base image and its CVEs are unchanged.
+RUN printf 'deb http://archive.debian.org/debian buster main\ndeb http://archive.debian.org/debian-security buster/updates main\n' > /etc/apt/sources.list \
+    && apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get install -y curl wget netcat vim git
 
 WORKDIR /app
 
