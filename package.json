@@ -27,7 +27,7 @@
     "pngquant-bin": "9.0.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "4.2.1",
+    "@vitejs/plugin-react": "4.7.0",
     "vite": "5.0.0",
     "concurrently": "^8.2.2"
   }
